@@ -146,15 +146,25 @@ output "ec2_infrastructure" {
       arn  = aws_autoscaling_group.ecs_asg[0].arn
       name = aws_autoscaling_group.ecs_asg[0].name
     }
-
     launch_template = {
       id      = aws_launch_template.ecs_lt[0].id
       version = aws_launch_template.ecs_lt[0].latest_version
     }
-
     capacity_provider = var.enable_capacity_provider ? {
       name = aws_ecs_capacity_provider.main[0].name
       arn  = aws_ecs_capacity_provider.main[0].arn
+    } : null
+    instance_profile = var.iam_instance_profile == null ? {
+      name = aws_iam_instance_profile.ecs_agent[0].name
+      arn  = aws_iam_instance_profile.ecs_agent[0].arn
+    } : null
+    ebs_volume = var.enable_ebs_data_volume ? {
+      enabled     = var.enable_ebs_data_volume
+      size        = var.ebs_data_volume_size
+      type        = var.ebs_data_volume_type
+      encrypted   = var.ebs_data_volume_encrypted
+      mount_point = var.ebs_data_mount_point
+      device_name = "/dev/xvdf"
     } : null
   } : null
 }
@@ -178,6 +188,19 @@ output "launch_template_id" {
 output "capacity_provider_name" {
   description = "Name of the ECS Capacity Provider (EC2 launch type only)"
   value       = var.launch_type[0] == "EC2" && var.enable_capacity_provider ? aws_ecs_capacity_provider.main[0].name : null
+}
+
+# EBS Volume Information
+output "ebs_volume_config" {
+  description = "EBS volume configuration (EC2 launch type only)"
+  value = var.launch_type[0] == "EC2" && var.enable_ebs_data_volume ? {
+    enabled           = var.enable_ebs_data_volume
+    size              = var.ebs_data_volume_size
+    type              = var.ebs_data_volume_type
+    encrypted         = var.ebs_data_volume_encrypted
+    mount_point       = var.ebs_data_mount_point
+    device_name       = "/dev/xvdf"
+  } : null
 }
 
 # ===================================================================

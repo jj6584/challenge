@@ -82,9 +82,77 @@ module "ecs_ec2" {
   subnet_ids = ["subnet-12345678", "subnet-87654321"]
   
   ec2_instance_type    = "t3.medium"
-  asg_min_size         = 1
-  asg_max_size         = 5
-  asg_desired_capacity = 2
+  ec2_min_size         = 1
+  ec2_max_size         = 5
+  ec2_desired_capacity = 2
+  
+  tags = {
+    Environment = "production"
+    Project     = "my-app"
+  }
+}
+```
+
+### EC2 Service with EBS Volumes
+
+```hcl
+module "ecs_ec2_with_ebs" {
+  source = "./modules/AWS/ecs"
+
+  cluster_name = "my-app-cluster"
+  service_name = "my-app-service"
+  
+  launch_type = ["EC2"]
+  
+  container_definitions = jsonencode([
+    {
+      name  = "my-app"
+      image = "nginx:latest"
+      cpu   = 128
+      memory = 256
+      essential = true
+      portMappings = [
+        {
+          containerPort = 80
+          hostPort      = 0
+          protocol      = "tcp"
+        }
+      ]
+      mountPoints = [
+        {
+          sourceVolume  = "app-data"
+          containerPath = "/data"
+          readOnly      = false
+        }
+      ]
+    }
+  ])
+
+  # Volume configuration
+  volumes = [
+    {
+      name                        = "app-data"
+      host_path                   = "/data/app"
+      efs_volume_configuration    = null
+      docker_volume_configuration = null
+    }
+  ]
+
+  vpc_id     = "vpc-12345678"
+  subnet_ids = ["subnet-12345678", "subnet-87654321"]
+  
+  ec2_instance_type    = "t3.medium"
+  ec2_min_size         = 1
+  ec2_max_size         = 5
+  ec2_desired_capacity = 2
+  
+  # EBS Data Volume Configuration
+  enable_ebs_data_volume     = true
+  ebs_data_volume_size       = 100
+  ebs_data_volume_type       = "gp3"
+  ebs_data_volume_throughput = 125
+  ebs_data_volume_encrypted  = true
+  ebs_data_mount_point       = "/data"
   
   tags = {
     Environment = "production"
@@ -304,9 +372,28 @@ module "ecs_ec2_custom" {
 - `launch_type` - ["FARGATE"] or ["EC2"]
 - `desired_count` - Number of tasks to run
 - `ec2_instance_type` - Instance type for EC2 launch type
-- `asg_min_size` - Auto Scaling Group minimum size
-- `asg_max_size` - Auto Scaling Group maximum size
-- `asg_desired_capacity` - Auto Scaling Group desired capacity
+- `ec2_min_size` - Auto Scaling Group minimum size
+- `ec2_max_size` - Auto Scaling Group maximum size
+- `ec2_desired_capacity` - Auto Scaling Group desired capacity
+
+### EBS Volume Configuration (EC2 Launch Type)
+
+- `enable_ebs_data_volume` - Enable additional EBS data volume for persistent storage (default: false)
+- `ebs_data_volume_size` - Size of the EBS data volume in GB (default: 100)
+- `ebs_data_volume_type` - Type of the EBS data volume: gp3, gp2, io1, io2 (default: "gp3")
+- `ebs_data_volume_iops` - IOPS for the EBS data volume (io1/io2 volumes only)
+- `ebs_data_volume_throughput` - Throughput for the EBS data volume in MB/s (gp3 volumes only)
+- `ebs_data_volume_encrypted` - Enable encryption for the EBS data volume (default: true)
+- `ebs_data_volume_kms_key_id` - KMS key ID for EBS data volume encryption
+- `ebs_data_mount_point` - Mount point for the EBS data volume (default: "/data")
+
+### Volume Configuration
+
+- `volumes` - List of volumes to attach to the task definition
+  - `name` - Volume name
+  - `host_path` - Host path for bind mount (EC2 launch type)
+  - `efs_volume_configuration` - EFS volume configuration object
+  - `docker_volume_configuration` - Docker volume configuration object
 
 ## Sample Outputs
 
@@ -414,6 +501,31 @@ ec2_infrastructure = {
     name = "my-app-cluster-capacity-provider"
     arn  = "arn:aws:ecs:us-west-2:123456789012:capacity-provider/my-app-cluster-capacity-provider"
   }
+  security_group = {
+    id  = "sg-0123456789abcdef2"
+    arn = "arn:aws:ec2:us-west-2:123456789012:security-group/sg-0123456789abcdef2"
+  }
+  iam_instance_profile = {
+    arn  = "arn:aws:iam::123456789012:instance-profile/my-app-cluster-instance-profile"
+    name = "my-app-cluster-instance-profile"
+  }
+  iam_role = {
+    arn  = "arn:aws:iam::123456789012:role/my-app-cluster-instance-role"
+    name = "my-app-cluster-instance-role"
+  }
+}
+
+# EBS volume configuration (when EBS volumes are enabled)
+ebs_volume_config = {
+  enabled        = true
+  size           = 100
+  type           = "gp3"
+  encrypted      = true
+  kms_key_id     = null
+  mount_point    = "/data"
+  iops           = null
+  throughput     = null
+  delete_on_termination = false
 }
 
 # Auto scaling information (when enabled)
@@ -498,6 +610,36 @@ resource "aws_security_group_rule" "app_database_access" {
   protocol                 = "tcp"
   source_security_group_id = aws_security_group.database.id
   security_group_id        = module.my_app.ecs_tasks_security_group_id
+}
+
+# Use EBS volume configuration for backup policies
+resource "aws_dlm_lifecycle_policy" "ebs_backup" {
+  count = module.my_app.ebs_volume_config.enabled ? 1 : 0
+  
+  description        = "EBS volume backup policy for ${module.my_app.service_name}"
+  execution_role_arn = aws_iam_role.dlm_lifecycle_role.arn
+  state              = "ENABLED"
+
+  policy_details {
+    resource_types   = ["VOLUME"]
+    target_tags = {
+      Name = "${module.my_app.cluster_name}-data-volume"
+    }
+    
+    schedule {
+      name = "Daily backups"
+      
+      create_rule {
+        interval      = 24
+        interval_unit = "HOURS"
+        times         = ["03:00"]
+      }
+      
+      retain_rule {
+        count = 7
+      }
+    }
+  }
 }
 
 # Reference grouped outputs (cleaner)

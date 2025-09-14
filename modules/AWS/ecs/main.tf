@@ -64,6 +64,26 @@ resource "aws_ecs_task_definition" "main" {
           transit_encryption_port = lookup(efs_volume_configuration.value, "transit_encryption_port", null)
         }
       }
+
+      # Host path volume configuration (for EC2 launch type)
+      dynamic "host_path" {
+        for_each = volume.value.host_path != null ? [volume.value.host_path] : []
+        content {
+          source_path = host_path.value
+        }
+      }
+
+      # Docker volume configuration (for EC2 launch type)
+      dynamic "docker_volume_configuration" {
+        for_each = volume.value.docker_volume_configuration != null ? [volume.value.docker_volume_configuration] : []
+        content {
+          scope         = lookup(docker_volume_configuration.value, "scope", "shared")
+          autoprovision = lookup(docker_volume_configuration.value, "autoprovision", true)
+          driver        = lookup(docker_volume_configuration.value, "driver", "local")
+          driver_opts   = lookup(docker_volume_configuration.value, "driver_opts", {})
+          labels        = lookup(docker_volume_configuration.value, "labels", {})
+        }
+      }
     }
   }
 

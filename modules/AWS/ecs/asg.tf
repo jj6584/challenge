@@ -62,6 +62,8 @@ resource "aws_launch_template" "ecs_lt" {
     custom_user_data        = var.user_data_script
     additional_commands     = var.additional_user_data_commands
     custom_environment_vars = var.custom_environment_variables
+    enable_ebs_data_volume  = var.enable_ebs_data_volume
+    ebs_data_mount_point    = var.ebs_data_mount_point
   }))
 
   # Enable detailed monitoring for better scaling decisions
@@ -84,6 +86,34 @@ resource "aws_launch_template" "ecs_lt" {
       market_type = "spot"
       spot_options {
         spot_instance_type = "one-time"
+      }
+    }
+  }
+
+  # EBS Block Device Mappings
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.ec2_volume_size
+      volume_type           = var.ec2_volume_type
+      delete_on_termination = true
+      encrypted             = true
+    }
+  }
+
+  # Additional EBS Data Volume for persistent storage
+  dynamic "block_device_mappings" {
+    for_each = var.enable_ebs_data_volume ? [1] : []
+    content {
+      device_name = "/dev/xvdf"
+      ebs {
+        volume_size           = var.ebs_data_volume_size
+        volume_type           = var.ebs_data_volume_type
+        iops                  = var.ebs_data_volume_iops
+        throughput            = var.ebs_data_volume_throughput
+        delete_on_termination = false  # Persist data volume
+        encrypted             = var.ebs_data_volume_encrypted
+        kms_key_id            = var.ebs_data_volume_kms_key_id
       }
     }
   }

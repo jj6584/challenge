@@ -375,6 +375,55 @@ variable "ec2_volume_type" {
   default     = "gp3"
 }
 
+# EBS Data Volume Configuration
+variable "enable_ebs_data_volume" {
+  description = "Enable additional EBS data volume for persistent storage"
+  type        = bool
+  default     = false
+}
+
+variable "ebs_data_volume_size" {
+  description = "Size of the EBS data volume in GB"
+  type        = number
+  default     = 100
+}
+
+variable "ebs_data_volume_type" {
+  description = "Type of the EBS data volume (gp3, gp2, io1, io2)"
+  type        = string
+  default     = "gp3"
+}
+
+variable "ebs_data_volume_iops" {
+  description = "IOPS for the EBS data volume (io1/io2 volumes only)"
+  type        = number
+  default     = null
+}
+
+variable "ebs_data_volume_throughput" {
+  description = "Throughput for the EBS data volume in MB/s (gp3 volumes only)"
+  type        = number
+  default     = null
+}
+
+variable "ebs_data_volume_encrypted" {
+  description = "Enable encryption for the EBS data volume"
+  type        = bool
+  default     = true
+}
+
+variable "ebs_data_volume_kms_key_id" {
+  description = "KMS key ID for EBS data volume encryption"
+  type        = string
+  default     = null
+}
+
+variable "ebs_data_mount_point" {
+  description = "Mount point for the EBS data volume"
+  type        = string
+  default     = "/data"
+}
+
 # Capacity Provider Configuration
 variable "enable_capacity_provider" {
   description = "Enable capacity provider for the cluster"

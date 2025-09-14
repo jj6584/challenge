@@ -1,6 +1,50 @@
 #!/bin/bash
 
 # ===================================================================
+# EBS Data Volume Setup (if enabled)
+# ===================================================================
+%{ if enable_ebs_data_volume ~}
+echo "$(date): Setting up EBS data volume" >> /var/log/ecs-init.log
+
+# Wait for the EBS volume to be attached
+while [ ! -e /dev/xvdf ]; do
+  echo "$(date): Waiting for EBS data volume to be attached..." >> /var/log/ecs-init.log
+  sleep 5
+done
+
+# Check if the volume has a filesystem
+if ! blkid /dev/xvdf; then
+  echo "$(date): Formatting EBS data volume with ext4" >> /var/log/ecs-init.log
+  mkfs.ext4 /dev/xvdf
+else
+  echo "$(date): EBS data volume already has a filesystem" >> /var/log/ecs-init.log
+fi
+
+# Create mount point
+mkdir -p ${ebs_data_mount_point}
+
+# Mount the volume
+echo "$(date): Mounting EBS data volume to ${ebs_data_mount_point}" >> /var/log/ecs-init.log
+mount /dev/xvdf ${ebs_data_mount_point}
+
+# Add to fstab for persistent mounting
+UUID=$(blkid -s UUID -o value /dev/xvdf)
+echo "UUID=$UUID ${ebs_data_mount_point} ext4 defaults,nofail 0 2" >> /etc/fstab
+
+# Create application directories
+mkdir -p ${ebs_data_mount_point}/postgres
+mkdir -p ${ebs_data_mount_point}/n8n
+mkdir -p ${ebs_data_mount_point}/traefik
+
+# Set proper permissions
+chown -R 999:999 ${ebs_data_mount_point}/postgres  # PostgreSQL user
+chown -R node:node ${ebs_data_mount_point}/n8n      # N8N user (if exists)
+chmod 755 ${ebs_data_mount_point}/traefik
+
+echo "$(date): EBS data volume setup completed" >> /var/log/ecs-init.log
+%{ endif ~}
+
+# ===================================================================
 # Custom Environment Variables (User-defined)
 # ===================================================================
 %{ for name, value in custom_environment_vars ~}
