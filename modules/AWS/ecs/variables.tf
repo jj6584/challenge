@@ -142,69 +142,341 @@ variable "vpc_id" {
   type        = string
 }
 
-# ALB Configuration
-variable "create_alb" {
-  description = "Whether to create an Application Load Balancer"
+# ===================================================================
+# LOAD BALANCER CONFIGURATION
+# ===================================================================
+
+variable "create_load_balancer" {
+  description = "Whether to create a load balancer (ALB or NLB)"
   type        = bool
   default     = false
 }
 
-variable "alb_security_groups" {
-  description = "Security groups for the ALB"
-  type        = list(string)
-  default     = []
+variable "load_balancer_type" {
+  description = "Type of load balancer to create: 'application' for ALB, 'network' for NLB"
+  type        = string
+  default     = "application"
+  validation {
+    condition     = contains(["application", "network"], var.load_balancer_type)
+    error_message = "Load balancer type must be either 'application' or 'network'."
+  }
 }
 
-variable "alb_subnets" {
-  description = "Subnets for the ALB"
-  type        = list(string)
-  default     = []
+variable "load_balancer_name" {
+  description = "Name of the load balancer. If not provided, defaults to cluster name"
+  type        = string
+  default     = ""
 }
 
-variable "alb_internal" {
-  description = "Whether the ALB is internal"
+variable "load_balancer_internal" {
+  description = "Whether the load balancer is internal"
   type        = bool
   default     = false
 }
 
-variable "container_port" {
-  description = "Port on which the container listens"
+variable "load_balancer_subnets" {
+  description = "Subnets for the load balancer"
+  type        = list(string)
+  default     = []
+}
+
+variable "load_balancer_security_groups" {
+  description = "Security groups for the load balancer (ALB only)"
+  type        = list(string)
+  default     = []
+}
+
+variable "enable_deletion_protection" {
+  description = "Enable deletion protection for the load balancer"
+  type        = bool
+  default     = false
+}
+
+variable "enable_cross_zone_load_balancing" {
+  description = "Enable cross-zone load balancing for NLB"
+  type        = bool
+  default     = false
+}
+
+variable "ip_address_type" {
+  description = "IP address type for the load balancer: ipv4 or dualstack"
+  type        = string
+  default     = "ipv4"
+  validation {
+    condition     = contains(["ipv4", "dualstack"], var.ip_address_type)
+    error_message = "IP address type must be either 'ipv4' or 'dualstack'."
+  }
+}
+
+# ===================================================================
+# TARGET GROUP CONFIGURATION
+# ===================================================================
+
+variable "target_group_name" {
+  description = "Name of the target group. If not provided, defaults to cluster name"
+  type        = string
+  default     = ""
+}
+
+variable "target_group_port" {
+  description = "Port on which targets receive traffic"
   type        = number
   default     = 80
 }
 
+variable "target_group_protocol" {
+  description = "Protocol to use for routing traffic to targets (HTTP, HTTPS, TCP, TLS, UDP, TCP_UDP)"
+  type        = string
+  default     = "HTTP"
+  validation {
+    condition     = contains(["HTTP", "HTTPS", "TCP", "TLS", "UDP", "TCP_UDP"], var.target_group_protocol)
+    error_message = "Target group protocol must be one of: HTTP, HTTPS, TCP, TLS, UDP, TCP_UDP."
+  }
+}
+
+variable "target_type" {
+  description = "Type of target that you must specify when registering targets (instance, ip, lambda, alb). Leave as null to auto-determine based on network_mode"
+  type        = string
+  default     = null  # Will be determined by network_mode
+  validation {
+    condition = (
+      var.target_type == null || 
+      var.target_type == "instance" || 
+      var.target_type == "ip" || 
+      var.target_type == "lambda" || 
+      var.target_type == "alb"
+    )
+    error_message = "Target type must be one of: instance, ip, lambda, alb, or null for auto-detection."
+  }
+}
+
+variable "deregistration_delay" {
+  description = "Amount of time for Elastic Load Balancing to wait before changing the state of a deregistering target"
+  type        = number
+  default     = 300
+}
+
+variable "slow_start" {
+  description = "Amount of time for targets to warm up before the load balancer sends them a full share of requests"
+  type        = number
+  default     = 0
+}
+
+variable "load_balancing_algorithm_type" {
+  description = "Determines how the load balancer selects targets when routing requests (round_robin, least_outstanding_requests)"
+  type        = string
+  default     = "round_robin"
+  validation {
+    condition     = contains(["round_robin", "least_outstanding_requests"], var.load_balancing_algorithm_type)
+    error_message = "Load balancing algorithm must be either 'round_robin' or 'least_outstanding_requests'."
+  }
+}
+
+# ===================================================================
+# HEALTH CHECK CONFIGURATION
+# ===================================================================
+
+variable "health_check_enabled" {
+  description = "Whether health checks are enabled"
+  type        = bool
+  default     = true
+}
+
 variable "health_check_path" {
-  description = "Health check path for the ALB target group"
+  description = "Health check path for HTTP/HTTPS target groups"
   type        = string
   default     = "/"
 }
 
+variable "health_check_port" {
+  description = "Port to use for health checks. Use 'traffic-port' to use the same port as target group"
+  type        = string
+  default     = "traffic-port"
+}
+
+variable "health_check_protocol" {
+  description = "Protocol to use for health checks (HTTP, HTTPS, TCP)"
+  type        = string
+  default     = "HTTP"
+  validation {
+    condition     = contains(["HTTP", "HTTPS", "TCP"], var.health_check_protocol)
+    error_message = "Health check protocol must be one of: HTTP, HTTPS, TCP."
+  }
+}
+
 variable "health_check_interval" {
-  description = "Health check interval in seconds"
+  description = "Approximate amount of time between health checks"
   type        = number
   default     = 30
 }
 
 variable "health_check_timeout" {
-  description = "Health check timeout in seconds"
+  description = "Amount of time during which no response means a failed health check"
   type        = number
   default     = 5
 }
 
-variable "healthy_threshold" {
-  description = "Number of consecutive health checks required for healthy status"
+variable "health_check_healthy_threshold" {
+  description = "Number of consecutive health checks successes required before considering an unhealthy target healthy"
   type        = number
   default     = 2
 }
 
-variable "unhealthy_threshold" {
-  description = "Number of consecutive failed health checks required for unhealthy status"
+variable "health_check_unhealthy_threshold" {
+  description = "Number of consecutive health check failures required before considering the target unhealthy"
   type        = number
   default     = 5
 }
 
-variable "certificate_arn" {
-  description = "ARN of the SSL certificate for HTTPS listener"
+variable "health_check_matcher" {
+  description = "Response codes to use when checking for a healthy responses from a target (ALB only)"
+  type        = string
+  default     = "200"
+}
+
+# ===================================================================
+# LISTENER CONFIGURATION
+# ===================================================================
+
+variable "enable_http_listener" {
+  description = "Enable HTTP listener"
+  type        = bool
+  default     = true
+}
+
+variable "http_port" {
+  description = "Port for HTTP listener"
+  type        = number
+  default     = 80
+}
+
+variable "http_redirect_to_https" {
+  description = "Redirect HTTP traffic to HTTPS"
+  type        = bool
+  default     = false
+}
+
+variable "enable_https_listener" {
+  description = "Enable HTTPS listener"
+  type        = bool
+  default     = false
+}
+
+variable "https_port" {
+  description = "Port for HTTPS listener"
+  type        = number
+  default     = 443
+}
+
+variable "ssl_certificate_arn" {
+  description = "ARN of the SSL certificate for HTTPS listener. If not provided, will look up certificate by domain name"
+  type        = string
+  default     = ""
+}
+
+variable "certificate_domain_name" {
+  description = "Domain name to look up ACM certificate for. Required if ssl_certificate_arn is not provided and HTTPS is enabled"
+  type        = string
+  default     = ""
+}
+
+variable "certificate_validation_method" {
+  description = "Validation method for ACM certificate lookup (DNS or EMAIL)"
+  type        = string
+  default     = "DNS"
+  validation {
+    condition     = contains(["DNS", "EMAIL"], var.certificate_validation_method)
+    error_message = "Certificate validation method must be either 'DNS' or 'EMAIL'."
+  }
+}
+
+variable "additional_certificate_subject_alternative_names" {
+  description = "Additional subject alternative names for ACM certificate lookup"
+  type        = list(string)
+  default     = []
+}
+
+variable "create_acm_certificate" {
+  description = "Whether to create a new ACM certificate if none found. Requires Route53 hosted zone for DNS validation"
+  type        = bool
+  default     = false
+}
+
+variable "acm_certificate_tags" {
+  description = "Additional tags for ACM certificate (if created)"
+  type        = map(string)
+  default     = {}
+}
+
+variable "ssl_policy" {
+  description = "SSL policy for HTTPS listener. Use newer policies for better security"
+  type        = string
+  default     = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  validation {
+    condition = contains([
+      "ELBSecurityPolicy-TLS13-1-2-2021-06",
+      "ELBSecurityPolicy-TLS-1-2-2017-01",
+      "ELBSecurityPolicy-TLS-1-2-Ext-2018-06",
+      "ELBSecurityPolicy-FS-2018-06",
+      "ELBSecurityPolicy-FS-1-2-2019-08",
+      "ELBSecurityPolicy-FS-1-2-Res-2019-08",
+      "ELBSecurityPolicy-FS-1-2-Res-2020-10",
+      "ELBSecurityPolicy-TLS-1-1-2017-01",
+      "ELBSecurityPolicy-2016-08",
+      "ELBSecurityPolicy-2015-05"
+    ], var.ssl_policy)
+    error_message = "SSL policy must be a valid ELB security policy."
+  }
+}
+
+# ===================================================================
+# ADDITIONAL TARGET GROUPS
+# ===================================================================
+
+variable "additional_target_groups" {
+  description = "Additional target groups to create"
+  type = list(object({
+    name                          = string
+    port                          = number
+    protocol                      = string
+    target_type                   = optional(string, "ip")
+    deregistration_delay          = optional(number, 300)
+    slow_start                    = optional(number, 0)
+    load_balancing_algorithm_type = optional(string, "round_robin")
+    health_check = optional(object({
+      enabled             = optional(bool, true)
+      path                = optional(string, "/")
+      port                = optional(string, "traffic-port")
+      protocol            = optional(string, "HTTP")
+      interval            = optional(number, 30)
+      timeout             = optional(number, 5)
+      healthy_threshold   = optional(number, 2)
+      unhealthy_threshold = optional(number, 5)
+      matcher             = optional(string, "200")
+    }), {})
+  }))
+  default = []
+}
+
+# ===================================================================
+# LEGACY COMPATIBILITY VARIABLES
+# ===================================================================
+
+# Legacy variable for backward compatibility
+variable "create_alb" {
+  description = "Whether to create an Application Load Balancer (deprecated, use create_load_balancer)"
+  type        = bool
+  default     = false
+}
+
+variable "container_port" {
+  description = "Port on which the container listens (deprecated, use target_group_port)"
+  type        = number
+  default     = 80
+}
+
+variable "container_name" {
+  description = "Name of the container to associate with the load balancer"
   type        = string
   default     = ""
 }
@@ -336,7 +608,7 @@ variable "ec2_desired_capacity" {
 variable "ec2_ami_id" {
   description = "AMI ID for EC2 instances. If not provided, latest ECS-optimized AMI will be used"
   type        = string
-  default     = ""
+  default     = null
 }
 
 variable "user_data_script" {
@@ -819,4 +1091,61 @@ variable "deployment_minimum_healthy_percent" {
   description = "Lower limit on the number of tasks in RUNNING state during deployment"
   type        = number
   default     = 100
+}
+
+# ===================================================================
+# MULTI-SERVICE SUPPORT
+# ===================================================================
+
+variable "services" {
+  description = "Map of ECS services to create. Each service can have its own task definition and configuration."
+  type = map(object({
+    # Basic Service Configuration
+    name                    = string
+    desired_count          = optional(number, 1)
+    container_definitions  = string
+    
+    # Task Definition Configuration
+    cpu                    = optional(string, "256")
+    memory                 = optional(string, "512")
+    requires_compatibilities = optional(list(string), ["FARGATE"])
+    
+    # Network Configuration
+    assign_public_ip       = optional(bool, false)
+    
+    # Load Balancer Configuration (optional)
+    enable_load_balancer   = optional(bool, false)
+    container_name         = optional(string, "")
+    container_port         = optional(number, 80)
+    target_group_config    = optional(object({
+      health_check_path    = optional(string, "/")
+      health_check_matcher = optional(string, "200")
+      protocol             = optional(string, "HTTP")
+      port                 = optional(number, 80)
+    }), {})
+    
+    # Service Discovery (optional)
+    enable_service_discovery = optional(bool, false)
+    service_discovery_config = optional(object({
+      namespace_name = string
+      service_name   = string
+    }), null)
+    
+    # Volumes
+    volumes = optional(list(any), [])
+    
+    # Environment specific overrides
+    environment_variables = optional(map(string), {})
+    secrets              = optional(list(object({
+      name      = string
+      valueFrom = string
+    })), [])
+  }))
+  default = {}
+}
+
+variable "enable_multi_service_mode" {
+  description = "Enable multi-service mode. When true, uses the services variable instead of single service configuration."
+  type        = bool
+  default     = false
 }

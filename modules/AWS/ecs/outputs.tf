@@ -34,26 +34,20 @@ output "cluster_name" {
 output "service" {
   description = "ECS service information"
   value = {
-    id   = aws_ecs_service.main.id
-    arn  = aws_ecs_service.main.arn
-    name = aws_ecs_service.main.name
+    id   = var.enable_multi_service_mode ? null : aws_ecs_service.main[0].id
+    name = var.enable_multi_service_mode ? null : aws_ecs_service.main[0].name
   }
 }
 
 # Legacy individual outputs for backward compatibility
 output "service_id" {
   description = "ID of the ECS service"
-  value       = aws_ecs_service.main.id
+  value       = var.enable_multi_service_mode ? null : aws_ecs_service.main[0].id
 }
 
 output "service_name" {
   description = "Name of the ECS service"
-  value       = aws_ecs_service.main.name
-}
-
-output "service_arn" {
-  description = "ARN of the ECS service"
-  value       = aws_ecs_service.main.arn
+  value       = var.enable_multi_service_mode ? null : aws_ecs_service.main[0].name
 }
 
 # ===================================================================
@@ -63,26 +57,26 @@ output "service_arn" {
 output "task_definition" {
   description = "ECS task definition information"
   value = {
-    arn      = aws_ecs_task_definition.main.arn
-    family   = aws_ecs_task_definition.main.family
-    revision = aws_ecs_task_definition.main.revision
+    arn      = var.enable_multi_service_mode ? null : aws_ecs_task_definition.main[0].arn
+    family   = var.enable_multi_service_mode ? null : aws_ecs_task_definition.main[0].family
+    revision = var.enable_multi_service_mode ? null : aws_ecs_task_definition.main[0].revision
   }
 }
 
 # Legacy individual outputs for backward compatibility
 output "task_definition_arn" {
   description = "ARN of the task definition"
-  value       = aws_ecs_task_definition.main.arn
+  value       = var.enable_multi_service_mode ? null : aws_ecs_task_definition.main[0].arn
 }
 
 output "task_definition_family" {
   description = "Family of the task definition"
-  value       = aws_ecs_task_definition.main.family
+  value       = var.enable_multi_service_mode ? null : aws_ecs_task_definition.main[0].family
 }
 
 output "task_definition_revision" {
   description = "Revision of the task definition"
-  value       = aws_ecs_task_definition.main.revision
+  value       = var.enable_multi_service_mode ? null : aws_ecs_task_definition.main[0].revision
 }
 
 # ===================================================================
@@ -194,12 +188,12 @@ output "capacity_provider_name" {
 output "ebs_volume_config" {
   description = "EBS volume configuration (EC2 launch type only)"
   value = var.launch_type[0] == "EC2" && var.enable_ebs_data_volume ? {
-    enabled           = var.enable_ebs_data_volume
-    size              = var.ebs_data_volume_size
-    type              = var.ebs_data_volume_type
-    encrypted         = var.ebs_data_volume_encrypted
-    mount_point       = var.ebs_data_mount_point
-    device_name       = "/dev/xvdf"
+    enabled     = var.enable_ebs_data_volume
+    size        = var.ebs_data_volume_size
+    type        = var.ebs_data_volume_type
+    encrypted   = var.ebs_data_volume_encrypted
+    mount_point = var.ebs_data_mount_point
+    device_name = "/dev/xvdf"
   } : null
 }
 
@@ -323,23 +317,299 @@ output "cloudwatch_log_group_name" {
 }
 
 # ===================================================================
+# LOAD BALANCER OUTPUTS
+# ===================================================================
+
+output "load_balancer" {
+  description = "Load balancer information"
+  value = local.create_load_balancer ? {
+    id                         = aws_lb.main[0].id
+    arn                        = aws_lb.main[0].arn
+    name                       = aws_lb.main[0].name
+    dns_name                   = aws_lb.main[0].dns_name
+    zone_id                    = aws_lb.main[0].zone_id
+    type                       = aws_lb.main[0].load_balancer_type
+    scheme                     = aws_lb.main[0].internal ? "internal" : "internet-facing"
+    vpc_id                     = aws_lb.main[0].vpc_id
+    security_groups            = aws_lb.main[0].security_groups
+    subnets                    = aws_lb.main[0].subnets
+    ip_address_type            = aws_lb.main[0].ip_address_type
+    enable_deletion_protection = aws_lb.main[0].enable_deletion_protection
+  } : null
+}
+
+output "ssl_certificate" {
+  description = "SSL certificate information"
+  value = local.create_load_balancer && var.enable_https_listener ? {
+    arn         = local.final_certificate_arn
+    domain_name = var.certificate_domain_name != "" ? var.certificate_domain_name : null
+    source      = var.ssl_certificate_arn != "" ? "provided" : (var.create_acm_certificate ? "created" : "lookup")
+    created_certificate = var.create_acm_certificate && var.certificate_domain_name != "" ? {
+      arn                     = aws_acm_certificate.main[0].arn
+      domain_name             = aws_acm_certificate.main[0].domain_name
+      domain_validation_options = aws_acm_certificate.main[0].domain_validation_options
+      validation_method       = aws_acm_certificate.main[0].validation_method
+      status                  = aws_acm_certificate.main[0].status
+    } : null
+    looked_up_certificate = var.certificate_domain_name != "" && !var.create_acm_certificate && length(data.aws_acm_certificate.main) > 0 ? {
+      arn         = data.aws_acm_certificate.main[0].arn
+      domain_name = data.aws_acm_certificate.main[0].domain
+      status      = data.aws_acm_certificate.main[0].status
+    } : null
+  } : null
+}
+
+output "target_group" {
+  description = "Primary target group information"
+  value = local.create_load_balancer ? {
+    id                    = aws_lb_target_group.main[0].id
+    arn                   = aws_lb_target_group.main[0].arn
+    name                  = aws_lb_target_group.main[0].name
+    port                  = aws_lb_target_group.main[0].port
+    protocol              = aws_lb_target_group.main[0].protocol
+    target_type           = aws_lb_target_group.main[0].target_type
+    vpc_id                = aws_lb_target_group.main[0].vpc_id
+    health_check_path     = aws_lb_target_group.main[0].health_check[0].path
+    health_check_protocol = aws_lb_target_group.main[0].health_check[0].protocol
+    health_check_port     = aws_lb_target_group.main[0].health_check[0].port
+  } : null
+}
+
+output "additional_target_groups" {
+  description = "Additional target groups information"
+  value = local.create_load_balancer ? {
+    for name, tg in aws_lb_target_group.additional : name => {
+      id                    = tg.id
+      arn                   = tg.arn
+      name                  = tg.name
+      port                  = tg.port
+      protocol              = tg.protocol
+      target_type           = tg.target_type
+      vpc_id                = tg.vpc_id
+      health_check_path     = tg.health_check[0].path
+      health_check_protocol = tg.health_check[0].protocol
+      health_check_port     = tg.health_check[0].port
+    }
+  } : {}
+}
+
+output "listeners" {
+  description = "Load balancer listeners information"
+  value = local.create_load_balancer ? {
+    http = var.enable_http_listener && var.load_balancer_type == "application" ? {
+      id             = aws_lb_listener.http[0].id
+      arn            = aws_lb_listener.http[0].arn
+      port           = aws_lb_listener.http[0].port
+      protocol       = aws_lb_listener.http[0].protocol
+      default_action = aws_lb_listener.http[0].default_action
+    } : null
+
+    https = var.enable_https_listener && (var.ssl_certificate_arn != "" || var.create_acm_certificate || var.certificate_domain_name != "") && var.load_balancer_type == "application" ? {
+      id              = aws_lb_listener.https[0].id
+      arn             = aws_lb_listener.https[0].arn
+      port            = aws_lb_listener.https[0].port
+      protocol        = aws_lb_listener.https[0].protocol
+      ssl_policy      = aws_lb_listener.https[0].ssl_policy
+      certificate_arn = aws_lb_listener.https[0].certificate_arn
+      default_action  = aws_lb_listener.https[0].default_action
+    } : null
+
+    tcp = var.load_balancer_type == "network" && var.target_group_protocol == "TCP" ? {
+      id             = aws_lb_listener.tcp[0].id
+      arn            = aws_lb_listener.tcp[0].arn
+      port           = aws_lb_listener.tcp[0].port
+      protocol       = aws_lb_listener.tcp[0].protocol
+      default_action = aws_lb_listener.tcp[0].default_action
+    } : null
+
+    tls = var.load_balancer_type == "network" && var.target_group_protocol == "TLS" && (var.ssl_certificate_arn != "" || var.create_acm_certificate || var.certificate_domain_name != "") ? {
+      id              = aws_lb_listener.tls[0].id
+      arn             = aws_lb_listener.tls[0].arn
+      port            = aws_lb_listener.tls[0].port
+      protocol        = aws_lb_listener.tls[0].protocol
+      ssl_policy      = aws_lb_listener.tls[0].ssl_policy
+      certificate_arn = aws_lb_listener.tls[0].certificate_arn
+      default_action  = aws_lb_listener.tls[0].default_action
+    } : null
+
+    udp = var.load_balancer_type == "network" && var.target_group_protocol == "UDP" ? {
+      id             = aws_lb_listener.udp[0].id
+      arn            = aws_lb_listener.udp[0].arn
+      port           = aws_lb_listener.udp[0].port
+      protocol       = aws_lb_listener.udp[0].protocol
+      default_action = aws_lb_listener.udp[0].default_action
+    } : null
+  } : {
+    http  = null
+    https = null
+    tcp   = null
+    tls   = null
+    udp   = null
+  }
+}
+
+# Legacy individual outputs for backward compatibility
+output "load_balancer_id" {
+  description = "ID of the load balancer"
+  value       = local.create_load_balancer ? aws_lb.main[0].id : null
+}
+
+output "load_balancer_arn" {
+  description = "ARN of the load balancer"
+  value       = local.create_load_balancer ? aws_lb.main[0].arn : null
+}
+
+output "load_balancer_dns_name" {
+  description = "DNS name of the load balancer"
+  value       = local.create_load_balancer ? aws_lb.main[0].dns_name : null
+}
+
+output "load_balancer_zone_id" {
+  description = "Canonical hosted zone ID of the load balancer"
+  value       = local.create_load_balancer ? aws_lb.main[0].zone_id : null
+}
+
+output "load_balancer_name" {
+  description = "Name of the load balancer"
+  value       = local.create_load_balancer ? aws_lb.main[0].name : null
+}
+
+output "target_group_arn" {
+  description = "ARN of the primary target group"
+  value       = local.create_load_balancer ? aws_lb_target_group.main[0].arn : null
+}
+
+output "target_group_name" {
+  description = "Name of the primary target group"
+  value       = local.create_load_balancer ? aws_lb_target_group.main[0].name : null
+}
+
+# SSL Certificate outputs
+output "ssl_certificate_arn" {
+  description = "ARN of the SSL certificate used by the load balancer"
+  value       = local.create_load_balancer && var.enable_https_listener ? local.final_certificate_arn : null
+}
+
+output "acm_certificate_arn" {
+  description = "ARN of the ACM certificate (if created by this module)"
+  value       = var.create_acm_certificate && var.certificate_domain_name != "" ? aws_acm_certificate.main[0].arn : null
+}
+
+output "alb_dns_name" {
+  description = "DNS name of the Application Load Balancer (alias for load_balancer_dns_name)"
+  value       = local.create_load_balancer ? aws_lb.main[0].dns_name : null
+}
+
+output "alb_zone_id" {
+  description = "Zone ID of the Application Load Balancer (alias for load_balancer_zone_id)"
+  value       = local.create_load_balancer ? aws_lb.main[0].zone_id : null
+}
+
+# ===================================================================
 # COMPREHENSIVE MODULE OUTPUT
 # ===================================================================
 
 output "ecs_module" {
   description = "Complete ECS module information"
   value = {
-    cluster            = output.cluster.value
-    service            = output.service.value
-    task_definition    = output.task_definition.value
-    iam_roles          = output.iam_roles.value
-    security_groups    = output.security_groups.value
-    ec2_infrastructure = output.ec2_infrastructure.value
-    autoscaling        = output.autoscaling.value
-    cloudwatch         = output.cloudwatch.value
+    cluster = {
+      id   = aws_ecs_cluster.main.id
+      arn  = aws_ecs_cluster.main.arn
+      name = aws_ecs_cluster.main.name
+    }
+    service = var.enable_multi_service_mode ? null : {
+      id   = aws_ecs_service.main[0].id
+      name = aws_ecs_service.main[0].name
+    }
+    task_definition = var.enable_multi_service_mode ? null : {
+      arn           = aws_ecs_task_definition.main[0].arn
+      family        = aws_ecs_task_definition.main[0].family
+      revision      = aws_ecs_task_definition.main[0].revision
+      network_mode  = aws_ecs_task_definition.main[0].network_mode
+      task_role_arn = aws_ecs_task_definition.main[0].task_role_arn
+    }
+    iam_roles = var.create_task_role || var.create_task_execution_role ? {
+      task_role_arn      = var.create_task_role ? aws_iam_role.ecs_task_role[0].arn : var.task_role_arn
+      execution_role_arn = var.create_task_execution_role ? aws_iam_role.ecs_task_execution_role[0].arn : var.execution_role_arn
+    } : {}
+    security_groups = var.vpc_id != null && var.create_ecs_security_group ? {
+      ecs_tasks = aws_security_group.ecs_tasks[0]
+    } : {}
+    ec2_infrastructure = var.launch_type[0] == "EC2" ? {
+      autoscaling_group_name = aws_autoscaling_group.ecs_asg[0].name
+      autoscaling_group_arn  = aws_autoscaling_group.ecs_asg[0].arn
+      capacity_provider_name = var.enable_capacity_provider ? aws_ecs_capacity_provider.main[0].name : null
+    } : {}
+    autoscaling = var.enable_autoscaling ? {
+      target_group_arn = aws_appautoscaling_target.ecs_target[0].id
+    } : {}
+    cloudwatch = var.enable_logging ? {
+      log_group_name = aws_cloudwatch_log_group.ecs_logs[0].name
+      log_group_arn  = aws_cloudwatch_log_group.ecs_logs[0].arn
+    } : {}
+
+    # Load balancer information
+    load_balancer = local.create_load_balancer ? {
+      id       = aws_lb.main[0].id
+      arn      = aws_lb.main[0].arn
+      name     = aws_lb.main[0].name
+      dns_name = aws_lb.main[0].dns_name
+      zone_id  = aws_lb.main[0].zone_id
+      type     = aws_lb.main[0].load_balancer_type
+      target_group = {
+        arn  = aws_lb_target_group.main[0].arn
+        name = aws_lb_target_group.main[0].name
+        port = aws_lb_target_group.main[0].port
+      }
+    } : {
+      id       = null
+      arn      = null
+      name     = null
+      dns_name = null
+      zone_id  = null
+      type     = null
+      target_group = {
+        arn  = null
+        name = null
+        port = null
+      }
+    }
 
     # Module metadata
     launch_type    = var.launch_type[0]
-    module_version = "enhanced"
+    module_version = "enhanced-with-load-balancer"
+  }
+}
+
+# ===================================================================
+# MULTI-SERVICE MODE OUTPUTS
+# ===================================================================
+
+output "multi_service_info" {
+  description = "Information about all services when in multi-service mode"
+  value = var.enable_multi_service_mode ? {
+    enabled = true
+    services = {
+      for name, config in var.services : name => {
+        service = {
+          name = aws_ecs_service.services[name].name
+          arn  = aws_ecs_service.services[name].id
+          id   = aws_ecs_service.services[name].id
+        }
+        task_definition = {
+          arn    = aws_ecs_task_definition.services[name].arn
+          family = aws_ecs_task_definition.services[name].family
+        }
+        target_group = config.enable_load_balancer ? {
+          arn  = aws_lb_target_group.services[name].arn
+          name = aws_lb_target_group.services[name].name
+          port = aws_lb_target_group.services[name].port
+        } : null
+        service_discovery = null
+      }
+    }
+  } : {
+    enabled = false
+    services = {}
   }
 }

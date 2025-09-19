@@ -7,19 +7,22 @@ Reusable Terraform modules for cloud infrastructure components.
 | Module | Description | Status |
 |--------|-------------|--------|
 | [AWS/ecs](./AWS/ecs/) | Elastic Container Service (Fargate & EC2) | ✅ Production Ready |
+| [AWS/rds](./AWS/rds/) | Relational Database Service (Single-AZ) | ✅ Production Ready |
 
 ## Quick Start
 
 Each module has its own detailed README with usage examples and configuration options:
 
 - **[AWS ECS Module](./AWS/ecs/README.md)** - Complete documentation for container orchestration
+- **[AWS RDS Module](./AWS/rds/README.md)** - Complete documentation for managed databases
 
 ## Module Structure
 
 ```
 modules/
 ├── AWS/
-│   └── ecs/          # Container orchestration
+│   ├── ecs/          # Container orchestration
+│   └── rds/          # Managed databases
 └── README.md
 ```
 

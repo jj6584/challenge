@@ -1,3 +1,28 @@
+# ===================================================================
+# LOCAL VALUES FOR ECS MODULE
+# ===================================================================
+
+locals {
+  # Determine if we should create a load balancer (legacy compatibility)
+  create_load_balancer = var.create_load_balancer || var.create_alb
+
+  # Load balancer name
+  load_balancer_name = var.load_balancer_name != "" ? var.load_balancer_name : "${var.cluster_name}-lb"
+
+  # Target group name
+  target_group_name = var.target_group_name != "" ? var.target_group_name : "${var.cluster_name}-tg"
+
+  # Determine target group port (legacy compatibility)
+  target_group_port = var.target_group_port != 80 ? var.target_group_port : var.container_port
+
+  # Security groups for load balancer
+  load_balancer_security_groups = length(var.load_balancer_security_groups) > 0 ? var.load_balancer_security_groups : (var.create_alb_security_group ? [aws_security_group.alb[0].id] : [])
+}
+
+# ===================================================================
+# ECS CLUSTER
+# ===================================================================
+
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = var.cluster_name
@@ -7,20 +32,20 @@ resource "aws_ecs_cluster" "main" {
     value = var.container_insights ? "enabled" : "disabled"
   }
 
-  # Add capacity providers for EC2 instance type selection
-  dynamic "capacity_providers" {
-    for_each = var.launch_type[0] == "EC2" ? [1] : []
-    content {
-      capacity_providers = [aws_ecs_capacity_provider.main[0].name]
-
-      default_capacity_provider_strategy {
-        capacity_provider = aws_ecs_capacity_provider.main[0].name
-        weight            = 100
-      }
-    }
-  }
-
   tags = var.tags
+}
+
+# ECS Cluster Capacity Providers
+resource "aws_ecs_cluster_capacity_providers" "main" {
+  count        = var.launch_type[0] == "EC2" && var.enable_capacity_provider ? 1 : 0
+  cluster_name = aws_ecs_cluster.main.name
+
+  capacity_providers = [aws_ecs_capacity_provider.main[0].name]
+
+  default_capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.main[0].name
+    weight            = 100
+  }
 }
 
 # CloudWatch Log Group for ECS tasks
@@ -34,8 +59,10 @@ resource "aws_cloudwatch_log_group" "ecs_logs" {
   })
 }
 
-# ECS Task Definition
+# ECS Task Definition (Single Service Mode)
 resource "aws_ecs_task_definition" "main" {
+  count = !var.enable_multi_service_mode ? 1 : 0
+
   family                   = var.task_family != null ? var.task_family : var.service_name
   network_mode             = var.network_mode
   requires_compatibilities = var.launch_type
@@ -65,14 +92,6 @@ resource "aws_ecs_task_definition" "main" {
         }
       }
 
-      # Host path volume configuration (for EC2 launch type)
-      dynamic "host_path" {
-        for_each = volume.value.host_path != null ? [volume.value.host_path] : []
-        content {
-          source_path = host_path.value
-        }
-      }
-
       # Docker volume configuration (for EC2 launch type)
       dynamic "docker_volume_configuration" {
         for_each = volume.value.docker_volume_configuration != null ? [volume.value.docker_volume_configuration] : []
@@ -90,11 +109,13 @@ resource "aws_ecs_task_definition" "main" {
   tags = var.tags
 }
 
-# ECS Service
+# ECS Service (Single Service Mode)
 resource "aws_ecs_service" "main" {
+  count = !var.enable_multi_service_mode ? 1 : 0
+
   name            = var.service_name
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.main.arn
+  task_definition = aws_ecs_task_definition.main[0].arn
   desired_count   = var.desired_count
 
   # Enhanced service configuration
@@ -102,8 +123,8 @@ resource "aws_ecs_service" "main" {
   enable_execute_command = var.enable_execute_command
   propagate_tags         = var.propagate_tags
 
-  # Health check grace period for ALB
-  health_check_grace_period_seconds = var.load_balancer_config != null ? var.health_check_grace_period : null
+  # Health check grace period for ALB/NLB
+  health_check_grace_period_seconds = var.load_balancer_config != null || local.create_load_balancer ? var.health_check_grace_period : null
 
   # Use capacity provider strategy for EC2, launch_type for Fargate
   dynamic "capacity_provider_strategy" {
@@ -117,7 +138,7 @@ resource "aws_ecs_service" "main" {
   launch_type = var.launch_type[0] == "FARGATE" ? var.launch_type[0] : null
 
   dynamic "network_configuration" {
-    for_each = var.launch_type[0] == "FARGATE" ? [1] : []
+    for_each = var.launch_type[0] == "FARGATE" || (var.launch_type[0] == "EC2" && var.network_mode == "awsvpc") ? [1] : []
     content {
       subnets = length(var.subnet_ids) > 0 ? var.subnet_ids : var.subnets
 
@@ -130,12 +151,23 @@ resource "aws_ecs_service" "main" {
     }
   }
 
+  # Load balancer configuration
   dynamic "load_balancer" {
     for_each = var.load_balancer_config != null ? [var.load_balancer_config] : []
     content {
       target_group_arn = load_balancer.value.target_group_arn
       container_name   = load_balancer.value.container_name
       container_port   = load_balancer.value.container_port
+    }
+  }
+
+  # Auto-generated load balancer configuration (when module creates LB)
+  dynamic "load_balancer" {
+    for_each = local.create_load_balancer && var.load_balancer_config == null ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.main[0].arn
+      container_name   = var.container_name != "" ? var.container_name : var.service_name
+      container_port   = local.target_group_port
     }
   }
 

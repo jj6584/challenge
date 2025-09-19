@@ -1,3 +1,19 @@
+# =============================================================================
+# LOCALS
+# =============================================================================
+
+locals {
+  # Combine provided security groups with created EC2 security group
+  launch_template_security_groups = var.launch_type[0] == "EC2" ? compact(concat(
+    var.security_group_ids,
+    var.create_ec2_security_group ? [aws_security_group.ec2_instances[0].id] : []
+  )) : []
+}
+
+# =============================================================================
+# AUTO SCALING GROUP
+# =============================================================================
+
 # Auto Scaling Group for EC2 instances (when using EC2 launch type)
 resource "aws_autoscaling_group" "ecs_asg" {
   count               = var.launch_type[0] == "EC2" ? 1 : 0
@@ -51,7 +67,7 @@ resource "aws_launch_template" "ecs_lt" {
   # NO SSH KEY - Access only via SSM Session Manager
   # key_name is intentionally omitted for security
 
-  vpc_security_group_ids = var.security_group_ids
+  vpc_security_group_ids = local.launch_template_security_groups
 
   iam_instance_profile {
     name = var.iam_instance_profile != null ? var.iam_instance_profile : aws_iam_instance_profile.ecs_agent[0].name
@@ -111,7 +127,7 @@ resource "aws_launch_template" "ecs_lt" {
         volume_type           = var.ebs_data_volume_type
         iops                  = var.ebs_data_volume_iops
         throughput            = var.ebs_data_volume_throughput
-        delete_on_termination = false  # Persist data volume
+        delete_on_termination = false # Persist data volume
         encrypted             = var.ebs_data_volume_encrypted
         kms_key_id            = var.ebs_data_volume_kms_key_id
       }
