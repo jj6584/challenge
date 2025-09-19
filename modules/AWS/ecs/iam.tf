@@ -162,25 +162,29 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "ssm:GetParameters",
-          "ssm:GetParameter",
-          "ssm:GetParametersByPath"
-        ]
-        Resource = var.task_secrets_arns
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt"
-        ]
-        Resource = var.kms_key_arns
-      }
-    ]
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "secretsmanager:GetSecretValue",
+            "ssm:GetParameters",
+            "ssm:GetParameter",
+            "ssm:GetParametersByPath"
+          ]
+          Resource = var.task_secrets_arns
+        }
+      ],
+      length(var.kms_key_arns) > 0 ? [
+        {
+          Effect = "Allow"
+          Action = [
+            "kms:Decrypt"
+          ]
+          Resource = var.kms_key_arns
+        }
+      ] : []
+    )
   })
 }
 

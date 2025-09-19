@@ -16,7 +16,7 @@ All service modules prioritize **minimal costs** with the following principles:
 
 | Module | Description | Estimated Cost/Day* | Status |
 |--------|-------------|-------------------|--------|
-| [n8n-ecs](./n8n-ecs/) | N8N workflow automation + PostgreSQL + Traefik | ~$1-2 | ✅ Production Ready |
+| [n8n-ecs-multiservice](./n8n-ecs-multiservice/) | Enhanced N8N with ALB, ACM certs, external RDS/Redis | ~$3-5 | ✅ Production Ready |
 
 *_Cost estimates based on t3.micro instances in ap-southeast-1, actual costs may vary_
 
@@ -24,7 +24,7 @@ All service modules prioritize **minimal costs** with the following principles:
 
 Each module includes cost-optimized defaults and detailed documentation:
 
-- **[N8N ECS Stack](./n8n-ecs/README.md)** - Complete workflow automation platform
+- **[N8N ECS Multiservice Stack](./n8n-ecs-multiservice/README.md)** - Enhanced workflow automation platform with ALB and ACM certificate support
 
 ## Module Architecture
 

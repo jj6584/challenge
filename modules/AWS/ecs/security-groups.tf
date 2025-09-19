@@ -1,5 +1,22 @@
 # ===================================================================
 # ECS TASK SECURITY GROUP (for Fargate and EC2 with awsvpc mode)
+# ========================# Egress rules for load balancer to ECS tasks
+resource "aws_vpc_security_group_egress_rule" "alb_to_ecs" {
+  count = (var.create_alb_security_group || (local.create_load_balancer && var.load_balancer_type == "application" && length(var.load_balancer_security_groups) == 0)) && var.vpc_id != null && var.create_ecs_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.alb[0].id
+  description       = "Traffic from load balancer to ECS tasks"
+
+  from_port                    = local.target_group_port
+  to_port                      = local.target_group_port
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.ecs_tasks[0].id
+
+  tags = var.tags
+}
+
+# ===================================================================
+# ECS TASKS SECURITY GROUP
 # ===================================================================
 
 # Security Group for ECS Tasks - Always created when VPC ID is provided
@@ -33,9 +50,9 @@ resource "aws_vpc_security_group_ingress_rule" "ecs_tasks_ingress" {
   tags = var.tags
 }
 
-# Default ingress rule for container port (when no custom rules and no ALB)
+# Default ingress rule for container port (when no custom rules and no load balancer)
 resource "aws_vpc_security_group_ingress_rule" "ecs_tasks_default_ingress" {
-  count = var.vpc_id != null && var.create_ecs_security_group && length(var.ecs_task_ingress_rules) == 0 && !var.create_alb_security_group && var.enable_default_ingress ? 1 : 0
+  count = var.vpc_id != null && var.create_ecs_security_group && length(var.ecs_task_ingress_rules) == 0 && !local.create_load_balancer && var.enable_default_ingress ? 1 : 0
 
   security_group_id = aws_security_group.ecs_tasks[0].id
   description       = "Default access to container port"
@@ -44,6 +61,23 @@ resource "aws_vpc_security_group_ingress_rule" "ecs_tasks_default_ingress" {
   to_port     = var.container_port
   ip_protocol = "tcp"
   cidr_ipv4   = var.default_ingress_cidr
+
+  tags = var.tags
+}
+
+# Ingress rule from load balancer to ECS tasks
+resource "aws_vpc_security_group_ingress_rule" "ecs_tasks_from_lb" {
+  count = var.vpc_id != null && var.create_ecs_security_group && local.create_load_balancer && var.load_balancer_type == "application" ? 1 : 0
+
+  security_group_id = aws_security_group.ecs_tasks[0].id
+  description       = "Access from load balancer"
+
+  from_port   = local.target_group_port
+  to_port     = local.target_group_port
+  ip_protocol = "tcp"
+
+  # Reference the ALB security group
+  referenced_security_group_id = length(local.load_balancer_security_groups) > 0 ? local.load_balancer_security_groups[0] : null
 
   tags = var.tags
 }
@@ -80,45 +114,46 @@ resource "aws_vpc_security_group_egress_rule" "ecs_tasks_egress_custom" {
 }
 
 # ===================================================================
-# ALB SECURITY GROUP (if using load balancer)
+# LOAD BALANCER SECURITY GROUP (ALB/NLB)
 # ===================================================================
 
-# Security Group for Application Load Balancer
+# Security Group for Load Balancer (ALB only - NLB doesn't use security groups)
 resource "aws_security_group" "alb" {
-  count       = var.create_alb_security_group ? 1 : 0
-  name        = "${var.cluster_name}-alb-sg"
-  description = "Security group for ALB in ${var.cluster_name}"
+  count       = var.create_alb_security_group || (local.create_load_balancer && var.load_balancer_type == "application" && length(var.load_balancer_security_groups) == 0) ? 1 : 0
+  name        = "${var.cluster_name}-lb-sg"
+  description = "Security group for ${upper(var.load_balancer_type)} in ${var.cluster_name}"
   vpc_id      = var.vpc_id
 
   tags = merge(var.tags, {
-    Name = "${var.cluster_name}-alb-sg"
-    Type = "ALB"
+    Name = "${var.cluster_name}-lb-sg"
+    Type = upper(var.load_balancer_type)
   })
 }
 
-# Ingress rules for ALB (HTTP/HTTPS)
+# HTTP ingress rule for ALB
 resource "aws_vpc_security_group_ingress_rule" "alb_http" {
-  count = var.create_alb_security_group && var.enable_http ? 1 : 0
+  count = (var.create_alb_security_group || (local.create_load_balancer && var.load_balancer_type == "application" && length(var.load_balancer_security_groups) == 0)) && var.enable_http_listener ? 1 : 0
 
   security_group_id = aws_security_group.alb[0].id
   description       = "HTTP traffic from internet"
 
-  from_port   = 80
-  to_port     = 80
+  from_port   = var.http_port
+  to_port     = var.http_port
   ip_protocol = "tcp"
   cidr_ipv4   = "0.0.0.0/0"
 
   tags = var.tags
 }
 
+# HTTPS ingress rule for ALB  
 resource "aws_vpc_security_group_ingress_rule" "alb_https" {
-  count = var.create_alb_security_group && var.enable_https ? 1 : 0
+  count = (var.create_alb_security_group || (local.create_load_balancer && var.load_balancer_type == "application" && length(var.load_balancer_security_groups) == 0)) && var.enable_https_listener ? 1 : 0
 
   security_group_id = aws_security_group.alb[0].id
   description       = "HTTPS traffic from internet"
 
-  from_port   = 443
-  to_port     = 443
+  from_port   = var.https_port
+  to_port     = var.https_port
   ip_protocol = "tcp"
   cidr_ipv4   = "0.0.0.0/0"
 
@@ -142,7 +177,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_custom_ingress" {
 }
 
 # Egress rules for ALB to ECS tasks
-resource "aws_vpc_security_group_egress_rule" "alb_to_ecs" {
+resource "aws_vpc_security_group_egress_rule" "alb_to_ecs_tasks" {
   count = var.create_alb_security_group && var.vpc_id != null && var.create_ecs_security_group ? 1 : 0
 
   security_group_id = aws_security_group.alb[0].id
@@ -152,6 +187,21 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_ecs" {
   to_port                      = var.container_port
   ip_protocol                  = "tcp"
   referenced_security_group_id = aws_security_group.ecs_tasks[0].id
+
+  tags = var.tags
+}
+
+# Egress rules for ALB to EC2 instances (for bridge mode)
+resource "aws_vpc_security_group_egress_rule" "alb_to_ec2_instances" {
+  count = var.launch_type[0] == "EC2" && var.create_alb_security_group && var.create_ec2_security_group ? 1 : 0
+
+  security_group_id = aws_security_group.alb[0].id
+  description       = "Traffic from ALB to EC2 instances for bridge mode"
+
+  from_port                    = 32768
+  to_port                      = 65535
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.ec2_instances[0].id
 
   tags = var.tags
 }

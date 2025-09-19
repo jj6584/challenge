@@ -1,5 +1,20 @@
 # AWS ECS Terraform Module
 
+This module creates AWS ECS infrastructure including clusters, services, task definitions, and optionally Application Load Balancers (ALB) or Network Load Balancers (NLB).
+
+## Features
+
+- ECS Cluster with optional Container Insights
+- ECS Service with Fargate or EC2 launch types
+- Task Definition with support for multiple containers
+- **NEW: Built-in Application Load Balancer (ALB) and Network Load Balancer (NLB) support**
+- **NEW: Advanced ACM SSL Certificate Management with automatic lookup and creation**
+- Auto Scaling configuration
+- Security Groups with proper ALB/ECS integration
+- CloudWatch Logging
+- EC2 launch type with Auto Scaling Groups
+- IAM roles and policies
+
 ## Usage
 
 ### Fargate Service
@@ -161,7 +176,9 @@ module "ecs_ec2_with_ebs" {
 }
 ```
 
-### With Load Balancer
+### With Load Balancer (NEW Enhanced Features)
+
+#### Application Load Balancer (ALB) with HTTPS
 
 ```hcl
 module "ecs_with_alb" {
@@ -193,15 +210,226 @@ module "ecs_with_alb" {
   memory = "1024"
   desired_count = 3
 
-  create_alb = true
-  alb_subnets = ["subnet-public1", "subnet-public2"]
-  container_port = 8080
-  health_check_path = "/health"
+  # NEW Load Balancer Configuration
+  create_load_balancer    = true
+  load_balancer_type      = "application"  # or "network"
+  load_balancer_subnets   = ["subnet-public1", "subnet-public2"]
+  load_balancer_internal  = false
+  
+  # Target Group Configuration
+  target_group_port       = 8080
+  target_group_protocol   = "HTTP"
+  container_name          = "my-app"  # Must match container name above
+  
+  # Health Check Configuration
+  health_check_path       = "/health"
+  health_check_protocol   = "HTTP"
+  health_check_interval   = 30
+  health_check_timeout    = 5
+  
+  # HTTPS Configuration - Method 1: Existing certificate ARN
+  enable_https_listener   = true
+  ssl_certificate_arn     = "arn:aws:acm:region:account:certificate/cert-id"
+  ssl_policy              = "ELBSecurityPolicy-TLS13-1-2-2021-06"  # Latest policy
+  http_redirect_to_https  = true
 
   tags = {
     Environment = "production"
     Project     = "my-app"
   }
+}
+```
+
+#### ALB with Automatic ACM Certificate Lookup
+
+```hcl
+module "ecs_with_auto_cert" {
+  source = "./modules/AWS/ecs"
+
+  cluster_name = "my-app-cluster"
+  service_name = "my-app-service"
+  
+  # ... container configuration ...
+
+  # Load Balancer with Auto Certificate Lookup
+  create_load_balancer    = true
+  load_balancer_type      = "application"
+  load_balancer_subnets   = ["subnet-public1", "subnet-public2"]
+  
+  # HTTPS Configuration - Method 2: Automatic certificate lookup
+  enable_https_listener   = true
+  certificate_domain_name = "myapp.example.com"  # Will look up existing ACM cert
+  ssl_policy              = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  http_redirect_to_https  = true
+
+  tags = {
+    Environment = "production"
+    Project     = "my-app"
+  }
+}
+```
+
+#### ALB with Automatic ACM Certificate Creation
+
+```hcl
+module "ecs_with_new_cert" {
+  source = "./modules/AWS/ecs"
+
+  cluster_name = "my-app-cluster"
+  service_name = "my-app-service"
+  
+  # ... container configuration ...
+
+  # Load Balancer with New Certificate Creation
+  create_load_balancer    = true
+  load_balancer_type      = "application"
+  load_balancer_subnets   = ["subnet-public1", "subnet-public2"]
+  
+  # HTTPS Configuration - Method 3: Create new ACM certificate
+  enable_https_listener   = true
+  certificate_domain_name = "myapp.example.com"
+  additional_certificate_subject_alternative_names = ["www.myapp.example.com", "api.myapp.example.com"]
+  create_acm_certificate  = true
+  certificate_validation_method = "DNS"
+  
+  acm_certificate_tags = {
+    Application = "MyApp"
+    Purpose     = "LoadBalancer"
+  }
+  
+  ssl_policy              = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  http_redirect_to_https  = true
+
+  tags = {
+    Environment = "production"
+    Project     = "my-app"
+  }
+}
+```
+
+> 📖 **For detailed HTTPS/SSL configuration examples and troubleshooting**, see [HTTPS_SSL_GUIDE.md](./HTTPS_SSL_GUIDE.md)
+```
+
+#### Network Load Balancer (NLB)
+
+```hcl
+module "ecs_with_nlb" {
+  source = "./modules/AWS/ecs"
+
+  cluster_name = "tcp-app-cluster"
+  service_name = "tcp-app-service"
+  
+  container_definitions = jsonencode([
+    {
+      name  = "tcp-app"
+      image = "tcp-server:latest"
+      cpu   = 256
+      memory = 512
+      essential = true
+      portMappings = [
+        {
+          containerPort = 3000
+          protocol      = "tcp"
+        }
+      ]
+    }
+  ])
+
+  vpc_id  = "vpc-12345678"
+  subnets = ["subnet-12345678", "subnet-87654321"]
+  
+  # NLB Configuration
+  create_load_balancer         = true
+  load_balancer_type           = "network"
+  load_balancer_subnets        = ["subnet-public1", "subnet-public2"]
+  enable_cross_zone_load_balancing = true
+  
+  # TCP Target Group
+  target_group_port       = 3000
+  target_group_protocol   = "TCP"
+  container_name          = "tcp-app"
+  
+  # Health Check for TCP
+  health_check_protocol   = "TCP"
+  health_check_interval   = 10
+
+  tags = {
+    Environment = "production"
+    Project     = "tcp-app"
+  }
+}
+```
+
+#### Multiple Target Groups
+
+```hcl
+module "ecs_multi_target" {
+  source = "./modules/AWS/ecs"
+
+  cluster_name = "multi-service-cluster"
+  service_name = "multi-service"
+  
+  # Primary load balancer
+  create_load_balancer    = true
+  load_balancer_type      = "application"
+  load_balancer_subnets   = ["subnet-public1", "subnet-public2"]
+  
+  target_group_port       = 80
+  target_group_protocol   = "HTTP"
+  container_name          = "web-server"
+  
+  # Additional target groups for different services
+  additional_target_groups = [
+    {
+      name     = "api-service-tg"
+      port     = 8080
+      protocol = "HTTP"
+      health_check = {
+        path     = "/api/health"
+        protocol = "HTTP"
+        port     = "8080"
+        matcher  = "200,202"
+      }
+    },
+    {
+      name     = "admin-service-tg"
+      port     = 9090
+      protocol = "HTTP"
+      health_check = {
+        path     = "/admin/status"
+        protocol = "HTTP"
+        port     = "9090"
+      }
+    }
+  ]
+
+  # Container definitions for multiple services
+  container_definitions = jsonencode([
+    {
+      name  = "web-server"
+      image = "nginx:latest"
+      cpu   = 256
+      memory = 512
+      essential = true
+      portMappings = [
+        { containerPort = 80, protocol = "tcp" }
+      ]
+    },
+    {
+      name  = "api-service"
+      image = "api:latest"
+      cpu   = 512
+      memory = 1024
+      essential = true
+      portMappings = [
+        { containerPort = 8080, protocol = "tcp" }
+      ]
+    }
+  ])
+
+  vpc_id  = "vpc-12345678"
+  subnets = ["subnet-12345678", "subnet-87654321"]
+}
 }
 ```
 
@@ -423,6 +651,12 @@ task_role_arn          = "arn:aws:iam::123456789012:role/my-app-cluster-task-rol
 # Security groups
 ecs_tasks_security_group_id = "sg-0123456789abcdef0"
 security_group_ids         = ["sg-0123456789abcdef0"]
+
+# Load Balancer outputs (NEW - when create_load_balancer = true)
+load_balancer_arn        = "arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/app/my-app-lb/1234567890abcdef"
+load_balancer_dns_name   = "my-app-lb-1234567890.us-west-2.elb.amazonaws.com"
+load_balancer_zone_id    = "Z1D633PJN98FT9"
+target_group_arn         = "arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/my-app-tg/1234567890abcdef"
 
 # For EC2 launch type
 autoscaling_group_arn    = "arn:aws:autoscaling:us-west-2:123456789012:autoScalingGroup:..."
