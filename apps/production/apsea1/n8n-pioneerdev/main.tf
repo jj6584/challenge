@@ -129,7 +129,8 @@ module "n8n_ecs_service" {
   redis_url_ssm_parameter = var.redis_url_ssm_parameter
 
   # Authentication
-  n8n_basic_auth_password_ssm_parameter = aws_ssm_parameter.n8n_basic_auth_password.arn
+  n8n_basic_auth_password_ssm_parameter = aws_ssm_parameter.n8n_basic_auth_password.name
+  n8n_encryption_key_ssm_parameter      = length(aws_ssm_parameter.n8n_encryption_key) > 0 ? aws_ssm_parameter.n8n_encryption_key[0].name : ""
 
   # Load Balancer Configuration
   load_balancer_internal = false

@@ -155,6 +155,12 @@ variable "n8n_basic_auth_password_ssm_parameter" {
   type        = string
 }
 
+variable "n8n_encryption_key_ssm_parameter" {
+  description = "SSM Parameter path for N8N encryption key"
+  type        = string
+  default     = ""
+}
+
 # Load Balancer Configuration
 variable "load_balancer_internal" {
   description = "Whether the load balancer is internal"

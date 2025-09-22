@@ -10,6 +10,11 @@ data "aws_ssm_parameter" "n8n_basic_auth_password" {
   name = var.n8n_basic_auth_password_ssm_parameter
 }
 
+data "aws_ssm_parameter" "n8n_encryption_key" {
+  count = var.n8n_encryption_key_ssm_parameter != "" ? 1 : 0
+  name  = var.n8n_encryption_key_ssm_parameter
+}
+
 
 
 # Local values for configuration
@@ -111,7 +116,7 @@ locals {
   ]
 
   # Container secrets
-  container_secrets = [
+  container_secrets = concat([
     {
       name      = "DB_POSTGRESDB_PASSWORD"
       valueFrom = data.aws_ssm_parameter.postgres_password.arn
@@ -120,7 +125,12 @@ locals {
       name      = "N8N_BASIC_AUTH_PASSWORD"
       valueFrom = data.aws_ssm_parameter.n8n_basic_auth_password.arn
     }
-  ]
+  ], var.n8n_encryption_key_ssm_parameter != "" ? [
+    {
+      name      = "N8N_ENCRYPTION_KEY"
+      valueFrom = data.aws_ssm_parameter.n8n_encryption_key[0].arn
+    }
+  ] : [])
 
   # Container definition as JSON string (required by ECS module)
   container_definitions_json = jsonencode([
@@ -211,7 +221,7 @@ module "ecs_cluster" {
   target_group_protocol = "HTTP"
 
   # Health Check Configuration - Use root path for N8N
-  health_check_path                = "/"
+  health_check_path                = "/healthz"
   health_check_protocol            = "HTTP"
   health_check_interval           = 60
   health_check_timeout            = 30
